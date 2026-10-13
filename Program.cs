@@ -1,5 +1,4 @@
 
-
 using Microsoft.EntityFrameworkCore;
 using SaiRamTours.Api.Data;
 using SaiRamTours.Api.Models;
@@ -15,6 +14,7 @@ if (string.IsNullOrWhiteSpace(connectionString))
     throw new InvalidOperationException(
         "MySqlConnection is not configured.");
 }
+
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(
         connectionString,
@@ -22,31 +22,30 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     )
 );
 
-
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("ReactFrontend", policy =>
     {
         policy.WithOrigins(
                 "http://localhost:5173",
-                "http://172.20.10.2:5173")
-              .AllowAnyHeader()
-              .AllowAnyMethod();
+                "http://172.20.10.2:5173",
+                "https://sairam-tours-frontend.vercel.app"
+            )
+            .AllowAnyHeader()
+            .AllowAnyMethod();
     });
 });
-
 
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
 app.UseCors("ReactFrontend");
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
-
-app.UseCors("ReactFrontend");
 
 app.UseHttpsRedirection();
 
