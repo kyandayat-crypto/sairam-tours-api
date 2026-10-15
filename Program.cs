@@ -1,12 +1,12 @@
 
+
 using Microsoft.EntityFrameworkCore;
 using SaiRamTours.Api.Data;
 using SaiRamTours.Api.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// -------------------- DATABASE CONFIGURATION --------------------
-
+// DATABASE CONFIGURATION
 var connectionString =
     builder.Configuration.GetConnectionString("MySqlConnection")
     ?? Environment.GetEnvironmentVariable("MYSQLCONNSTR_MySqlConnection");
@@ -14,19 +14,17 @@ var connectionString =
 if (string.IsNullOrWhiteSpace(connectionString))
 {
     throw new InvalidOperationException(
-        "MySqlConnection is not configured. Check appsettings.json or environment variables."
+        "MySqlConnection is not configured. Check Render environment variables."
     );
 }
-
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(
         connectionString,
-        ServerVersion.AutoDetect(connectionString)
+        new MySqlServerVersion(new Version(8, 4, 11))
     )
 );
 
-// -------------------- CORS CONFIGURATION --------------------
-
+// CORS CONFIGURATION
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("ReactFrontend", policy =>
@@ -47,8 +45,7 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// -------------------- MIDDLEWARE --------------------
-
+// MIDDLEWARE
 app.UseCors("ReactFrontend");
 
 if (app.Environment.IsDevelopment())
@@ -56,34 +53,31 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-// Render and other reverse-proxy hosts normally terminate HTTPS
-// at the proxy. Configure forwarded headers separately if needed.
-
-// -------------------- ROOT / HEALTH CHECK --------------------
-
+// ROOT
 app.MapGet("/", () =>
 {
     return Results.Ok(new
     {
         success = true,
-        message = "Sai Ram Tours & Travels API is running!"
+        message = "Sai Malhar Tours & Travels API is running!"
     });
 });
 
+// HEALTH CHECK
 app.MapGet("/api/health", () =>
 {
     return Results.Ok(new
     {
         success = true,
-        message = "Sai Ram Tours & Travels API is connected!"
+        message = "Sai Malhar Tours & Travels API is connected!"
     });
 });
 
-// -------------------- CREATE BOOKING --------------------
-
+// CREATE BOOKING
 app.MapPost("/api/bookings", async (
     Booking booking,
     AppDbContext db,
+    ILogger<Program> logger,
     CancellationToken cancellationToken) =>
 {
     if (string.IsNullOrWhiteSpace(booking.CustomerName) ||
@@ -97,6 +91,11 @@ app.MapPost("/api/bookings", async (
             message = "Please fill all required fields."
         });
     }
+
+    booking.CustomerName = booking.CustomerName.Trim();
+    booking.Phone = booking.Phone.Trim();
+    booking.FromCity = booking.FromCity.Trim();
+    booking.ToCity = booking.ToCity.Trim();
 
     if (booking.Phone.Length != 10 ||
         !booking.Phone.All(char.IsDigit))
@@ -145,10 +144,6 @@ app.MapPost("/api/bookings", async (
     }
 
     booking.Id = 0;
-    booking.CustomerName = booking.CustomerName.Trim();
-    booking.Phone = booking.Phone.Trim();
-    booking.FromCity = booking.FromCity.Trim();
-    booking.ToCity = booking.ToCity.Trim();
     booking.VehicleType = booking.VehicleType.Trim();
     booking.Status = "Pending";
     booking.CreatedAt = DateTime.UtcNow;
@@ -156,7 +151,13 @@ app.MapPost("/api/bookings", async (
     try
     {
         db.Bookings.Add(booking);
+
         await db.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation(
+            "Booking saved successfully. BookingId: {BookingId}",
+            booking.Id
+        );
 
         return Results.Created(
             $"/api/bookings/{booking.Id}",
@@ -169,18 +170,35 @@ app.MapPost("/api/bookings", async (
             }
         );
     }
-    catch (DbUpdateException)
+    catch (DbUpdateException ex)
     {
+        logger.LogError(
+            ex,
+            "Database update failed while saving a booking."
+        );
+
         return Results.Problem(
-            title: "Booking could not be saved",
-            detail: "Please check the database connection and booking table.",
+            title: "Booking request failed",
+            detail: "Database update failed. Please check Render Logs.",
+            statusCode: StatusCodes.Status500InternalServerError
+        );
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(
+            ex,
+            "Unexpected error while creating a booking."
+        );
+
+        return Results.Problem(
+            title: "Booking request failed",
+            detail: "An unexpected server error occurred. Please check Render Logs.",
             statusCode: StatusCodes.Status500InternalServerError
         );
     }
 });
 
-// -------------------- GET ALL BOOKINGS (ADMIN) --------------------
-
+// GET ALL BOOKINGS
 app.MapGet("/api/bookings", async (
     AppDbContext db,
     CancellationToken cancellationToken) =>
@@ -193,8 +211,7 @@ app.MapGet("/api/bookings", async (
     return Results.Ok(bookings);
 });
 
-// -------------------- GET BOOKING BY ID --------------------
-
+// GET BOOKING BY ID
 app.MapGet("/api/bookings/{id:int}", async (
     int id,
     AppDbContext db,
@@ -216,6 +233,5 @@ app.MapGet("/api/bookings/{id:int}", async (
     return Results.Ok(booking);
 });
 
-// -------------------- START API --------------------
-
+// START API
 app.Run();
